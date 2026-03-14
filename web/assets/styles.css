@@ -5,48 +5,94 @@
   --primary: #2563eb;
 }
 
+html {
+  height: 100%;
+}
+
 * { box-sizing: border-box; }
 body {
   margin: 0;
+  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
+  overflow: hidden;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 12px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.topbar h1 {
+  margin: 0;
+  font-size: 1.2rem;
 }
 
 .layout {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 320px 1fr;
-  height: calc(100vh - 60px);
 }
 
 .panel {
   background: var(--panel);
   border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 12px;
-  overflow: auto;
+  min-height: 0;
 }
 .panel input, .panel textarea, .panel button, #settingsDialog input, #settingsDialog select {
   width: 100%;
   margin: 6px 0;
   padding: 8px;
 }
+.panel h2 {
+  margin: 0 0 8px;
+}
+.panel label {
+  display: block;
+  margin-top: 4px;
+}
+
+.kbPanel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.kbPanel textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.batchPanel {
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 
 .chat {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .messages {
   flex: 1;
   overflow: auto;
+  min-height: 0;
   padding: 16px;
 }
 
@@ -66,6 +112,10 @@ body {
   background: #fff;
   border: 1px solid var(--border);
 }
+.msg.streaming::after {
+  content: " ▍";
+  animation: blink 1s steps(1) infinite;
+}
 
 .composer {
   border-top: 1px solid var(--border);
@@ -74,12 +124,18 @@ body {
 }
 #messageInput {
   width: 100%;
-  min-height: 90px;
+  min-height: 72px;
+  max-height: 22vh;
+  resize: vertical;
 }
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+.actions button {
+  flex: 1 1 180px;
 }
 button {
   border: 1px solid var(--border);
@@ -89,6 +145,10 @@ button {
 }
 button:hover {
   background: #f9fafb;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 #settingsDialog {
@@ -103,8 +163,12 @@ button:hover {
 }
 
 #kbList {
+  flex: 1;
   list-style: none;
   padding: 0;
+  margin: 8px 0 0;
+  min-height: 0;
+  overflow: auto;
 }
 .kb-item {
   background: #f9fafb;
@@ -114,3 +178,43 @@ button:hover {
   margin: 8px 0;
 }
 .kb-item button { margin-top: 6px; }
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (max-height: 820px) {
+  .topbar {
+    padding: 10px 12px;
+  }
+
+  .panel,
+  .composer,
+  .messages {
+    padding: 10px;
+  }
+
+  .kbPanel textarea,
+  #messageInput {
+    min-height: 64px;
+  }
+}
+
+@media (max-width: 900px) {
+  body {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import socket
 import sqlite3
 import urllib.error
 import urllib.request
@@ -12,13 +13,15 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "app.db"
+OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+LLM_TIMEOUT_SECONDS = 300
 
 REQUIRED_PROMPT_COLUMNS = {"prompt_id", "prompt_name", "user_prompt_template", "enabled"}
 
@@ -29,7 +32,7 @@ class PromptConfig:
     prompt_name: str
     user_prompt_template: str
     enabled: bool
-    temperature: float = 0.2
+    temperature: float = 1.0
     max_tokens: int = 800
 
 
@@ -125,7 +128,7 @@ def parse_prompt_csv_text(csv_text: str) -> list[PromptConfig]:
                 prompt_name=(row.get("prompt_name") or "").strip() or prompt_id,
                 user_prompt_template=(row.get("user_prompt_template") or "").strip(),
                 enabled=enabled,
-                temperature=float((row.get("temperature") or "0.2").strip()),
+                temperature=float((row.get("temperature") or "1.0").strip()),
                 max_tokens=int((row.get("max_tokens") or "800").strip()),
             )
         )
@@ -148,7 +151,32 @@ def build_knowledge_context(limit: int = 6) -> str:
     return "\n\n".join(chunks)
 
 
-def call_llm(provider: str, model: str, api_key: str, messages: list[dict[str, str]], temperature: float = 0.2) -> str:
+def extract_text_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text":
+                continue
+            text = item.get("text", "")
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+
+    return ""
+
+
+def _build_llm_request(
+    provider: str,
+    model: str,
+    api_key: str,
+    messages: list[dict[str, str]],
+    temperature: float = 1.0,
+    *,
+    stream: bool = False,
+) -> urllib.request.Request:
     if not api_key.strip():
         raise ValueError("APIトークンが未設定です。画面右上の設定から入力してください。")
 
@@ -160,8 +188,11 @@ def call_llm(provider: str, model: str, api_key: str, messages: list[dict[str, s
         "messages": messages,
         "temperature": temperature,
     }
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+    if stream:
+        payload["stream"] = True
+
+    return urllib.request.Request(
+        OPENAI_CHAT_COMPLETIONS_URL,
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
@@ -169,15 +200,71 @@ def call_llm(provider: str, model: str, api_key: str, messages: list[dict[str, s
         },
         method="POST",
     )
+
+
+def _open_llm_response(
+    provider: str,
+    model: str,
+    api_key: str,
+    messages: list[dict[str, str]],
+    temperature: float = 1.0,
+    *,
+    stream: bool = False,
+) -> Any:
+    req = _build_llm_request(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        messages=messages,
+        temperature=temperature,
+        stream=stream,
+    )
     try:
-        with urllib.request.urlopen(req, timeout=60) as res:
-            body = json.loads(res.read().decode("utf-8"))
-            return body["choices"][0]["message"]["content"]
+        return urllib.request.urlopen(req, timeout=LLM_TIMEOUT_SECONDS)
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="ignore")
         raise ValueError(f"LLM API error: {e.code} {detail[:400]}") from e
+    except (TimeoutError, socket.timeout) as e:
+        raise ValueError("LLM API の応答がタイムアウトしました。プロンプトを短くするか、少し待ってから再試行してください。") from e
     except urllib.error.URLError as e:
         raise ValueError(f"Network error while calling LLM API: {e}") from e
+
+
+def iter_openai_text_chunks(response: Any) -> Iterator[str]:
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="ignore").strip()
+        if not line or not line.startswith("data:"):
+            continue
+
+        data = line[5:].strip()
+        if data == "[DONE]":
+            return
+
+        event = json.loads(data)
+        for choice in event.get("choices", []):
+            delta = choice.get("delta", {})
+            text = extract_text_content(delta.get("content", ""))
+            if text:
+                yield text
+
+
+def call_llm(provider: str, model: str, api_key: str, messages: list[dict[str, str]], temperature: float = 1.0) -> str:
+    try:
+        with _open_llm_response(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            messages=messages,
+            temperature=temperature,
+        ) as res:
+            body = json.loads(res.read().decode("utf-8"))
+            message = body["choices"][0]["message"]
+            content = extract_text_content(message.get("content", ""))
+            if not content:
+                raise ValueError("LLM API returned an empty response.")
+            return content
+    except KeyError as e:
+        raise ValueError("LLM API returned an unexpected response format.") from e
 
 
 def run_batch(document_text: str, prompt_csv_text: str, provider: str, model: str, api_key: str) -> list[dict[str, Any]]:
@@ -247,7 +334,7 @@ def generate_contract(request_text: str, provider: str, model: str, api_key: str
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.2,
+        temperature=1.0,
     )
 
 
@@ -259,6 +346,48 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_text_stream_headers(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+    def _write_text_stream_chunk(self, text: str) -> None:
+        if not text:
+            return
+        self.wfile.write(text.encode("utf-8"))
+        self.wfile.flush()
+
+    def _relay_text_stream(
+        self,
+        provider: str,
+        model: str,
+        api_key: str,
+        messages: list[dict[str, str]],
+        temperature: float = 1.0,
+    ) -> None:
+        with _open_llm_response(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            messages=messages,
+            temperature=temperature,
+            stream=True,
+        ) as res:
+            self._send_text_stream_headers()
+            try:
+                for chunk in iter_openai_text_chunks(res):
+                    self._write_text_stream_chunk(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception as exc:
+                try:
+                    self._write_text_stream_chunk(f"\n\n[受信エラー] {exc}")
+                except (BrokenPipeError, ConnectionResetError):
+                    return
 
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -340,6 +469,29 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"response": response})
                 return
 
+            if parsed.path == "/api/chat/stream":
+                body = self._read_json_body()
+                provider = body.get("provider", "openai")
+                model = body.get("model", "gpt-4o-mini")
+                api_key = body.get("api_key", "")
+                message = body.get("message", "")
+                kb_context = build_knowledge_context()
+
+                system = "あなたは業務向けAIアシスタントです。日本語で明確に回答してください。"
+                if kb_context:
+                    system += f"\n\n# ナレッジベース\n{kb_context}"
+
+                self._relay_text_stream(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": message},
+                    ],
+                )
+                return
+
             if parsed.path == "/api/batch":
                 body = self._read_json_body()
                 results = run_batch(
@@ -361,6 +513,35 @@ class AppHandler(BaseHTTPRequestHandler):
                     api_key=body.get("api_key", ""),
                 )
                 self._send_json(200, {"draft": draft})
+                return
+
+            if parsed.path == "/api/generate_contract/stream":
+                body = self._read_json_body()
+                request_text = body.get("request_text", "")
+                provider = body.get("provider", "openai")
+                model = body.get("model", "gpt-4o-mini")
+                api_key = body.get("api_key", "")
+
+                kb_context = build_knowledge_context(limit=12)
+                system_prompt = (
+                    "あなたは法務アシスタントです。ユーザー要望に応じて契約書草案を作成してください。"
+                    "ナレッジベースに契約雛型・条項例があれば優先して活用し、不足部分は一般的な表現で補完してください。"
+                    "出力は日本語で、見出し付きで構成してください。"
+                )
+                if kb_context:
+                    system_prompt += f"\n\n# 契約書ナレッジベース\n{kb_context}"
+
+                user_prompt = f"次の要件で契約書の草案を作成してください。\n\n{request_text}"
+                self._relay_text_stream(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=1.0,
+                )
                 return
 
             self.send_error(HTTPStatus.NOT_FOUND)

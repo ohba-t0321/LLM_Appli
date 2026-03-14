@@ -86,7 +86,7 @@ def parse_prompt_csv(path: Path) -> list[PromptConfig]:
                 continue
 
             try:
-                temperature = float((row.get("temperature") or "0.2").strip())
+                temperature = float((row.get("temperature") or "1.0").strip())
                 max_tokens = int((row.get("max_tokens") or "800").strip())
             except ValueError as exc:
                 raise ValueError(f"invalid numeric value in prompt_id={prompt_id}") from exc

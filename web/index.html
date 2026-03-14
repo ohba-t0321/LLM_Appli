@@ -14,18 +14,22 @@
 
     <main class="layout">
       <aside class="panel">
-        <h2>ナレッジベース</h2>
-        <input id="kbTitle" placeholder="タイトル（例: 売買契約ひな型）" />
-        <textarea id="kbContent" placeholder="条文テンプレートや定型文を入力"></textarea>
-        <button id="addKb">保存</button>
-        <ul id="kbList"></ul>
+        <section class="kbPanel">
+          <h2>ナレッジベース</h2>
+          <input id="kbTitle" placeholder="タイトル（例: 売買契約ひな型）" />
+          <textarea id="kbContent" placeholder="条文テンプレートや定型文を入力"></textarea>
+          <button id="addKb">保存</button>
+          <ul id="kbList"></ul>
+        </section>
 
-        <h2>ファイル一括分析</h2>
-        <label>入力ファイル(.txt)</label>
-        <input id="inputFile" type="file" accept=".txt" />
-        <label>プロンプトCSV</label>
-        <input id="promptCsv" type="file" accept=".csv" />
-        <button id="runBatch">実行</button>
+        <section class="batchPanel">
+          <h2>ファイル一括分析</h2>
+          <label>入力ファイル(.txt)</label>
+          <input id="inputFile" type="file" accept=".txt" />
+          <label>プロンプトCSV</label>
+          <input id="promptCsv" type="file" accept=".csv" />
+          <button id="runBatch">実行</button>
+        </section>
       </aside>
 
       <section class="chat">

@@ -20,6 +20,17 @@ function addMessage(role, text) {
   box.textContent = text;
   $("messages").appendChild(box);
   $("messages").scrollTop = $("messages").scrollHeight;
+  return box;
+}
+
+function updateMessage(box, text) {
+  box.textContent = text;
+  $("messages").scrollTop = $("messages").scrollHeight;
+}
+
+function setComposerBusy(isBusy) {
+  $("sendMessage").disabled = isBusy;
+  $("generateContract").disabled = isBusy;
 }
 
 async function api(path, options = {}) {
@@ -30,6 +41,45 @@ async function api(path, options = {}) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "API error");
   return data;
+}
+
+async function streamText(path, payload, onChunk) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/plain",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const contentType = res.headers.get("Content-Type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      throw new Error(data.error || "API error");
+    }
+    throw new Error((await res.text()) || "API error");
+  }
+
+  if (!res.body) {
+    throw new Error("このブラウザはストリーミング応答に対応していません。");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let text = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+    onChunk(text);
+  }
+
+  text += decoder.decode();
+  onChunk(text);
+  return text;
 }
 
 async function loadKnowledge() {
@@ -55,6 +105,68 @@ async function readFileText(fileInputId) {
   const file = $(fileInputId).files[0];
   if (!file) return "";
   return await file.text();
+}
+
+async function sendChatMessage() {
+  let assistantBox = null;
+  try {
+    const message = $("messageInput").value.trim();
+    if (!message) return;
+    addMessage("user", message);
+    assistantBox = addMessage("assistant", "");
+    assistantBox.classList.add("streaming");
+    $("messageInput").value = "";
+
+    const settings = getSettings();
+    setComposerBusy(true);
+    await streamText("/api/chat/stream", { ...settings, message }, (text) => {
+      updateMessage(assistantBox, text || "...");
+    });
+    if (!assistantBox.textContent.trim()) {
+      updateMessage(assistantBox, "(応答は空でした)");
+    }
+  } catch (e) {
+    if (assistantBox) {
+      updateMessage(assistantBox, `エラー: ${e.message}`);
+    } else {
+      addMessage("assistant", `エラー: ${e.message}`);
+    }
+  } finally {
+    assistantBox?.classList.remove("streaming");
+    setComposerBusy(false);
+  }
+}
+
+async function generateContractDraft() {
+  let assistantBox = null;
+  try {
+    const request_text = $("messageInput").value.trim();
+    if (!request_text) {
+      addMessage("assistant", "契約書作成の要件を入力してください。");
+      return;
+    }
+    addMessage("user", `[契約書作成依頼]\n${request_text}`);
+    assistantBox = addMessage("assistant", "");
+    assistantBox.classList.add("streaming");
+    $("messageInput").value = "";
+    const settings = getSettings();
+    setComposerBusy(true);
+    await streamText("/api/generate_contract/stream", { ...settings, request_text }, (text) => {
+      updateMessage(assistantBox, text || "...");
+    });
+    if (!assistantBox.textContent.trim()) {
+      updateMessage(assistantBox, "(応答は空でした)");
+    }
+  } catch (e) {
+    if (assistantBox) {
+      updateMessage(assistantBox, `エラー: ${e.message}`);
+    } else {
+      addMessage("assistant", `エラー: ${e.message}`);
+    }
+  } finally {
+    assistantBox?.classList.remove("streaming");
+    setComposerBusy(false);
+  }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -90,43 +202,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   };
 
-  $("sendMessage").onclick = async () => {
-    try {
-      const message = $("messageInput").value.trim();
-      if (!message) return;
-      addMessage("user", message);
-      $("messageInput").value = "";
-
-      const settings = getSettings();
-      const data = await api("/api/chat", {
-        method: "POST",
-        body: JSON.stringify({ ...settings, message }),
-      });
-      addMessage("assistant", data.response);
-    } catch (e) {
-      addMessage("assistant", `エラー: ${e.message}`);
-    }
-  };
-
-  $("generateContract").onclick = async () => {
-    try {
-      const request_text = $("messageInput").value.trim();
-      if (!request_text) {
-        addMessage("assistant", "契約書作成の要件を入力してください。");
-        return;
-      }
-      addMessage("user", `[契約書作成依頼]\n${request_text}`);
-      $("messageInput").value = "";
-      const settings = getSettings();
-      const data = await api("/api/generate_contract", {
-        method: "POST",
-        body: JSON.stringify({ ...settings, request_text }),
-      });
-      addMessage("assistant", data.draft);
-    } catch (e) {
-      addMessage("assistant", `エラー: ${e.message}`);
-    }
-  };
+  $("sendMessage").onclick = sendChatMessage;
+  $("generateContract").onclick = generateContractDraft;
+  $("messageInput").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !event.ctrlKey) return;
+    event.preventDefault();
+    if ($("sendMessage").disabled) return;
+    sendChatMessage();
+  });
 
   $("runBatch").onclick = async () => {
     try {

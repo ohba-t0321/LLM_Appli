@@ -40,6 +40,27 @@ class WebAppTests(unittest.TestCase):
         ctx = webapp.build_knowledge_context()
         self.assertIn("[KB:NDA]", ctx)
 
+    def test_extract_text_content_from_part_list(self) -> None:
+        content = [
+            {"type": "text", "text": "契約"},
+            {"type": "input_text", "text": "ignored"},
+            {"type": "text", "text": "ドラフト"},
+        ]
+        self.assertEqual(webapp.extract_text_content(content), "契約ドラフト")
+
+    def test_iter_openai_text_chunks(self) -> None:
+        class FakeResponse:
+            def __iter__(self):
+                lines = [
+                    'data: {"choices":[{"delta":{"content":"はじめ"}}]}\n',
+                    'data: {"choices":[{"delta":{"content":"まして"}}]}\n',
+                    "data: [DONE]\n",
+                ]
+                return iter(line.encode("utf-8") for line in lines)
+
+        chunks = list(webapp.iter_openai_text_chunks(FakeResponse()))
+        self.assertEqual(chunks, ["はじめ", "まして"])
+
 
 if __name__ == "__main__":
     unittest.main()
