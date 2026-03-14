@@ -1,0 +1,116 @@
+:root {
+  --bg: #f3f4f6;
+  --panel: #ffffff;
+  --border: #d1d5db;
+  --primary: #2563eb;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  height: calc(100vh - 60px);
+}
+
+.panel {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 12px;
+  overflow: auto;
+}
+.panel input, .panel textarea, .panel button, #settingsDialog input, #settingsDialog select {
+  width: 100%;
+  margin: 6px 0;
+  padding: 8px;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+}
+
+.messages {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.msg {
+  max-width: 80%;
+  margin-bottom: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  white-space: pre-wrap;
+}
+.msg.user {
+  margin-left: auto;
+  background: #dbeafe;
+}
+.msg.assistant {
+  margin-right: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.composer {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 12px;
+}
+#messageInput {
+  width: 100%;
+  min-height: 90px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+button:hover {
+  background: #f9fafb;
+}
+
+#settingsDialog {
+  width: min(480px, 90vw);
+  border: none;
+  border-radius: 10px;
+}
+.dialogActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#kbList {
+  list-style: none;
+  padding: 0;
+}
+.kb-item {
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  padding: 8px;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+.kb-item button { margin-top: 6px; }
